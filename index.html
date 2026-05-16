@@ -108,6 +108,14 @@
       font-family: inherit;
     }
 
+    .field select:disabled,
+    .field input:disabled,
+    .field textarea:disabled {
+      background: #f3f4f6;
+      color: #9ca3af;
+      cursor: not-allowed;
+    }
+
     .kategori-options {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -159,6 +167,12 @@
       border-color: #9ca3af;
     }
 
+    .kategori-card input:disabled + .card-content {
+      background: #f3f4f6;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
     .submit-btn {
       width: 100%;
       padding: 14px;
@@ -204,6 +218,13 @@
       background: #fee2e2;
       color: #991b1b;
       border: 1px solid #fca5a5;
+      display: block;
+    }
+
+    .message.info {
+      background: #dbeafe;
+      color: #1e3a8a;
+      border: 1px solid #93c5fd;
       display: block;
     }
   </style>
@@ -285,6 +306,32 @@
     // URL Google Apps Script Web App
     const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbylscW-8ZMpwZEDix4OOnyBGrXZH4NOJmjpDuDGEfTTzuKLqzawT4JEUG_3ARpm4QZF/exec';
 
+    // ===== DEVICE ID & PEMBATASAN SEKALI SEHARI =====
+    // Buat / ambil device ID unik dari localStorage
+    function getDeviceId() {
+      let id = localStorage.getItem('asatidz_device_id');
+      if (!id) {
+        id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem('asatidz_device_id', id);
+      }
+      return id;
+    }
+    const DEVICE_ID = getDeviceId();
+
+    function todayKey() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function isAlreadySubmittedToday() {
+      return localStorage.getItem('asatidz_last_submit_date') === todayKey();
+    }
+
+    function markSubmittedToday() {
+      localStorage.setItem('asatidz_last_submit_date', todayKey());
+    }
+    // ================================================
+
     // Set tanggal hari ini di header
     const today = new Date();
     const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -299,7 +346,6 @@
     const dd = String(today.getDate()).padStart(2, '0');
     document.getElementById('tanggal').value = `${yyyy}-${mm}-${dd}`;
 
-    // Tangani submit form
     const form = document.getElementById('attendanceForm');
     const submitBtn = document.getElementById('submitBtn');
     const messageEl = document.getElementById('message');
@@ -312,8 +358,26 @@
       }
     }
 
+    function lockForm(reason) {
+      // Disable semua input dan tombol submit
+      Array.from(form.elements).forEach(el => { el.disabled = true; });
+      submitBtn.textContent = '✓ Sudah Presensi Hari Ini';
+      showMessage(reason, 'info');
+    }
+
+    // Cek saat halaman dibuka — kalau sudah presensi hari ini, kunci form
+    if (isAlreadySubmittedToday()) {
+      lockForm('Anda sudah mengisi presensi hari ini dari device ini. Silakan kembali besok.');
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+
+      // Double-check sebelum submit (jika tab dibiarkan terbuka melewati tengah malam)
+      if (isAlreadySubmittedToday()) {
+        lockForm('Anda sudah mengisi presensi hari ini dari device ini. Silakan kembali besok.');
+        return;
+      }
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Mengirim...';
@@ -323,7 +387,8 @@
         asatidz: form.asatidz.value,
         tanggal: form.tanggal.value,
         kategori: form.kategori.value,
-        catatan: form.catatan.value || '-'
+        catatan: form.catatan.value || '-',
+        deviceId: DEVICE_ID
       };
 
       try {
@@ -334,13 +399,17 @@
           body: JSON.stringify(formData)
         });
 
+        // Tandai sudah presensi hari ini di localStorage
+        markSubmittedToday();
         showMessage('✓ Presensi berhasil dikirim. Terima kasih!', 'success');
         form.reset();
-        document.getElementById('tanggal').value = `${yyyy}-${mm}-${dd}`;
+        // Kunci form setelah berhasil
+        setTimeout(() => {
+          lockForm('Anda sudah mengisi presensi hari ini dari device ini. Silakan kembali besok.');
+        }, 1500);
       } catch (err) {
         showMessage('❌ Gagal mengirim presensi. Coba lagi atau hubungi admin.', 'error');
         console.error(err);
-      } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Kirim Presensi';
       }
